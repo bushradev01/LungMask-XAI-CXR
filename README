@@ -1,11 +1,20 @@
+<div align="center">
+
 # LungMask-XAI-CXR
 
-**Chest X-ray classification with lung-mask-verified explainability**
+### Chest X-ray classification with lung-mask-verified explainability
 
 ![Status](https://img.shields.io/badge/status-work%20in%20progress-orange)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-timm-red)
-![Task](https://img.shields.io/badge/task-COVID--19%20%7C%20Non--COVID%20%7C%20Normal-green)
+![Dataset](https://img.shields.io/badge/dataset-COVID--QU--Ex-informational)
+![Best accuracy](https://img.shields.io/badge/best%20test%20accuracy-96.61%25-brightgreen)
+
+[Abstract](#1-abstract) &nbsp;·&nbsp; [System](#3-system-overview) &nbsp;·&nbsp; [Dataset](#4-dataset) &nbsp;·&nbsp; [File reference](#6-file-reference-what-each-file-does) &nbsp;·&nbsp; [Setup](#8-installation-and-local-setup) &nbsp;·&nbsp; [Results](#10-results) &nbsp;·&nbsp; [Roadmap](#11-project-status-and-roadmap)
+
+</div>
+
+---
 
 > **Disclaimer.** This is a research and coursework project. It is **not a medical device** and must not be used for real diagnosis or treatment decisions.
 
@@ -147,16 +156,52 @@ LungMask-XAI-CXR/
 
 ### Scripts in `src/` (in the order they are used)
 
-| File | Purpose | Main inputs | Main outputs | Run |
-|---|---|---|---|---|
-| `check_data.py` | Counts the files in every folder. Written for the original nested Kaggle layout, so change its root folder to `data/lung_seg` and `data/infection_seg` to reuse it after restructuring. | dataset folders | printed counts | `python src/check_data.py` |
-| `restructure_data.py` | Flattens the nested Kaggle download (removes the doubled `Infection Segmentation Data/Infection Segmentation Data` folders and the archive folder), lowercases split names, renames `infection masks` to `infection_masks` and `lung masks` to `lung_masks`. Dry run by default. Folders are **moved**, not copied. | extracted Kaggle folder | `data/lung_seg/`, `data/infection_seg/` | `python src/restructure_data.py --archive "<folder>" --apply` |
-| `check_data_deep.py` | Verifies: every image has a mask with the same file name; image sizes and modes (sample of 30 per split and class); mask pixel values and empty masks (100 per class); identical images shared between splits (MD5 hash). | `data/` | printed report | `python src/check_data_deep.py` |
-| `make_manifest.py` | Builds the list of all images with class, label, split and mask paths. Also checks that `infection_seg` is a subset of `lung_seg`, prints the mean lung area per class and saves a sample figure. | `data/` | `data/manifest.csv`, `outputs/sample_grid.png` | `python src/make_manifest.py` |
-| `check_preprocessing_need.py` | Measures, on 300 training images per class: pixel range and percentiles, share of black and white pixels, noise level (Immerkaer estimate), brightness and contrast, border brightness. Used to decide which preprocessing steps are really needed. | `data/manifest.csv` | printed table, `outputs/preprocessing_check.png`, `outputs/preprocessing_check_hist.png` | `python src/check_preprocessing_need.py` |
-| `clean_data.py` | Decodes **every** image and mask and flags problems: `corrupt`, `wrong_size`, `wrong_mode`, `blank_image`, `mask_not_binary`, `lung_empty`, `lung_tiny`, `lung_huge`, `duplicate`. Rows with `corrupt`, `wrong_size`, `wrong_mode`, `blank_image`, `lung_empty` or `duplicate` get `keep = False`. **No file is ever deleted.** | `data/manifest.csv` | `data/manifest_clean.csv`, `data/cleaning_report.csv` | `python src/clean_data.py` |
-| `dataset.py` | PyTorch `Dataset` (`CXRDataset`) and the whole preprocessing pipeline (see section 7). Works locally (`layout="local"`) and on Kaggle (`layout="kaggle"`, original nested folders). Can also return lung and infection masks for evaluation. Running it directly performs a self-test and saves a figure of original, CLAHE and augmented images. | `manifest_clean.csv` | tensors; `outputs/preprocess_check.png` (self-test) | `python src/dataset.py` |
-| `train_classifier.py` | Trains and evaluates a classifier on Kaggle (finds the dataset paths automatically). Pretrained model from `timm`, AdamW, cosine learning-rate schedule, mixed precision, label smoothing 0.1, early stopping on validation accuracy, then **one** evaluation on the test split. Options at the top of the file: `MODEL`, `BATCH`, `EPOCHS`, `LR`, `USE_CLAHE`, `TRAIN_FRACTION`, `FREEZE_BACKBONE`. | `dataset.py`, `manifest_clean.csv`, COVID-QU-Ex on Kaggle | `best_<TAG>.pt`, `history_<TAG>.csv`, `results_<TAG>.json`, `curves_<TAG>.png` | see section 9 |
+#### `check_data.py`
+Counts the files in every dataset folder.
+- **Note:** written for the original nested Kaggle layout. Change its root folder to `data/lung_seg` and `data/infection_seg` to reuse it after restructuring.
+- **Run:** `python src/check_data.py`
+
+#### `restructure_data.py`
+Flattens the nested Kaggle download: removes the doubled `Infection Segmentation Data/Infection Segmentation Data` folders and the archive folder, lowercases split names, and renames `infection masks` to `infection_masks` and `lung masks` to `lung_masks`. It does a dry run unless `--apply` is given, and it **moves** folders (nothing is copied).
+- **Input:** the extracted Kaggle folder
+- **Output:** `data/lung_seg/` and `data/infection_seg/`
+- **Run:** `python src/restructure_data.py --archive "<folder>" --apply`
+
+#### `check_data_deep.py`
+Validates the flattened data:
+- every image has a mask with the same file name
+- image size and mode (sample of 30 per split and class)
+- mask pixel values and empty masks (100 per class)
+- identical images shared between splits (MD5 hash)
+
+**Input:** `data/` &nbsp;|&nbsp; **Output:** printed report &nbsp;|&nbsp; **Run:** `python src/check_data_deep.py`
+
+#### `make_manifest.py`
+Builds the list of all images with class, label, split and mask paths. It also checks that `infection_seg` is a subset of `lung_seg`, prints the mean lung area per class, and saves a sample figure.
+- **Output:** `data/manifest.csv`, `outputs/sample_grid.png`
+- **Run:** `python src/make_manifest.py`
+
+#### `check_preprocessing_need.py`
+Measures, on 300 training images per class, the pixel range and percentiles, the share of black and white pixels, the noise level (Immerkaer estimate), brightness, contrast and border brightness. It is used to decide which preprocessing steps are really needed.
+- **Output:** printed table, `outputs/preprocessing_check.png`, `outputs/preprocessing_check_hist.png`
+- **Run:** `python src/check_preprocessing_need.py`
+
+#### `clean_data.py`
+Decodes **every** image and mask and flags problems: `corrupt`, `wrong_size`, `wrong_mode`, `blank_image`, `mask_not_binary`, `lung_empty`, `lung_tiny`, `lung_huge`, `duplicate`. Rows with `corrupt`, `wrong_size`, `wrong_mode`, `blank_image`, `lung_empty` or `duplicate` get `keep = False`. **No file is ever deleted.**
+- **Output:** `data/manifest_clean.csv`, `data/cleaning_report.csv`
+- **Run:** `python src/clean_data.py`
+
+#### `dataset.py`
+The PyTorch `Dataset` (`CXRDataset`) and the whole preprocessing pipeline (see section 7). It works locally (`layout="local"`) and on Kaggle (`layout="kaggle"`, original nested folders), and can also return lung and infection masks for evaluation. Running it directly performs a self-test.
+- **Input:** `manifest_clean.csv`
+- **Output:** tensors; `outputs/preprocess_check.png` (self-test)
+- **Run:** `python src/dataset.py`
+
+#### `train_classifier.py`
+Trains and evaluates a classifier on Kaggle and finds the dataset paths automatically. It uses a pretrained model from `timm`, AdamW, a cosine learning-rate schedule, mixed precision, label smoothing 0.1 and early stopping on validation accuracy, then evaluates **once** on the test split.
+- **Options (top of the file):** `MODEL`, `BATCH`, `EPOCHS`, `LR`, `USE_CLAHE`, `TRAIN_FRACTION`, `FREEZE_BACKBONE`
+- **Output:** `best_<TAG>.pt`, `history_<TAG>.csv`, `results_<TAG>.json`, `curves_<TAG>.png`
+- **Run:** see section 9
 
 `<TAG>` is built from the settings, for example `convnext_tiny_frac1.0` or `mobilenetv4_conv_small_frac0.05_frozen`, so runs never overwrite each other.
 
