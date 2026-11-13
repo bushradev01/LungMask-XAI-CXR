@@ -1,0 +1,30 @@
+# virtual environment
+venv/
+.venv/
+
+# python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# editor
+.vscode/
+
+# dataset (too large) - keep only the manifests
+data/*
+!data/manifest_clean.csv
+!data/cleaning_report.csv
+
+# model weights and big files (over GitHub's 100 MB limit)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.zip
+*.npy
+*.npz
+
+# keep empty folders in git
+!app/.gitkeep
+!models/.gitkeep
+!outputs/.gitkeep

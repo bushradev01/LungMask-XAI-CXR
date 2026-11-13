@@ -1,0 +1,5 @@
+dataset,split,class,label,image,lung_mask,infection_mask,issues,keep
+lung_seg,test,COVID-19,0,lung_seg/test/COVID-19/images/covid_2755.png,lung_seg/test/COVID-19/lung_masks/covid_2755.png,,lung_huge,True
+lung_seg,test,COVID-19,0,lung_seg/test/COVID-19/images/covid_2900.png,lung_seg/test/COVID-19/lung_masks/covid_2900.png,,lung_huge,True
+infection_seg,test,COVID-19,0,infection_seg/test/COVID-19/images/covid_2755.png,infection_seg/test/COVID-19/lung_masks/covid_2755.png,infection_seg/test/COVID-19/infection_masks/covid_2755.png,lung_huge,True
+infection_seg,test,COVID-19,0,infection_seg/test/COVID-19/images/covid_2900.png,infection_seg/test/COVID-19/lung_masks/covid_2900.png,infection_seg/test/COVID-19/infection_masks/covid_2900.png,lung_huge,True
