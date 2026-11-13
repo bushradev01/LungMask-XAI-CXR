@@ -1,0 +1,399 @@
+<div align="center">
+
+# LungMask-XAI-CXR
+
+### Chest X-ray classification with lung-mask-verified explainability
+
+![Status](https://img.shields.io/badge/status-work%20in%20progress-orange)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-timm-red)
+![Dataset](https://img.shields.io/badge/dataset-COVID--QU--Ex-informational)
+![Best accuracy](https://img.shields.io/badge/best%20test%20accuracy-96.61%25-brightgreen)
+
+[Abstract](#1-abstract) &nbsp;·&nbsp; [System](#3-system-overview) &nbsp;·&nbsp; [Dataset](#4-dataset) &nbsp;·&nbsp; [File reference](#6-file-reference-what-each-file-does) &nbsp;·&nbsp; [Setup](#8-installation-and-local-setup) &nbsp;·&nbsp; [Results](#10-results) &nbsp;·&nbsp; [Roadmap](#11-project-status-and-roadmap)
+
+</div>
+
+---
+
+> **Disclaimer.** This is a research and coursework project. It is **not a medical device** and must not be used for real diagnosis or treatment decisions.
+
+---
+
+## Table of contents
+1. [Abstract](#1-abstract)
+2. [Objectives and contributions](#2-objectives-and-contributions)
+3. [System overview](#3-system-overview)
+4. [Dataset](#4-dataset)
+5. [Repository structure](#5-repository-structure)
+6. [File reference (what each file does)](#6-file-reference-what-each-file-does)
+7. [Data preparation and preprocessing](#7-data-preparation-and-preprocessing)
+8. [Installation and local setup](#8-installation-and-local-setup)
+9. [Training on Kaggle](#9-training-on-kaggle)
+10. [Results](#10-results)
+11. [Project status and roadmap](#11-project-status-and-roadmap)
+12. [Limitations](#12-limitations)
+13. [Related work](#13-related-work)
+14. [Contributing](#14-contributing)
+15. [Acknowledgements](#15-acknowledgements)
+
+---
+
+## 1. Abstract
+
+We classify chest X-rays into **COVID-19**, **Non-COVID pneumonia** and **Normal** using modern (2022 and later) pretrained architectures, and we go beyond accuracy: we test whether the model actually looks at the lungs. The COVID-QU-Ex dataset ships ground-truth lung masks (and infection masks for part of the data), which lets us **measure** how much of an explanation heatmap lies inside the lungs, instead of judging heatmaps by eye. The long-term goal is a usable tool in which a user uploads an X-ray and receives a prediction, the lung outline, the infected regions and a heatmap, together with a reliability check.
+
+## 2. Objectives and contributions
+
+| # | Objective | Status |
+|---|---|---|
+| O1 | Build a clean, reproducible data pipeline for COVID-QU-Ex | Done |
+| O2 | Train and compare modern classifiers (ConvNeXt, MaxViT, a light 2023-2024 model) | In progress |
+| O3 | Train lung and infection segmentation models | Planned |
+| O4 | Compare several explanation methods (Grad-CAM, Score-CAM, others) on the same model | Planned |
+| O5 | Quantify explanations: fraction of heatmap energy inside the lung mask, and overlap with the infection mask (COVID-19 only) | Planned |
+| O6 | Test for image-source shortcuts (full image vs. lung-masked image) | Planned |
+| O7 | Deliver a small web app | Planned |
+
+The gaps we address, as we read the two reference papers (our own reading, not claims by the authors): explanations are judged only visually; only one explanation method per paper; the provided lung masks are not used to verify explanations; no outside test; no usable tool.
+
+## 3. System overview
+
+```mermaid
+flowchart LR
+    A[Chest X-ray] --> B[Preprocessing]
+    B --> C[Classifier]
+    B --> D[Lung segmentation]
+    B --> E[Infection segmentation]
+    C --> P[Prediction + confidence]
+    C --> F[Explanation heatmaps]
+    F --> G[Lung-overlap check]
+    D --> G
+    E --> G
+    G --> R[Reliability report]
+```
+
+| Stage | What it does | Status |
+|---|---|---|
+| Preprocessing | Resize to 224x224, 3 channels, ImageNet normalization, light augmentation (training only) | Implemented |
+| Classifier | Predicts COVID-19 / Non-COVID / Normal with a confidence value | Implemented (ConvNeXt-Tiny); more models planned |
+| Lung segmentation | Draws the lung area on the X-ray | Planned |
+| Infection segmentation | Marks infected regions and reports the share of lung affected (reliable for COVID-19 only) | Planned |
+| Explanation | Heatmaps showing where the classifier looked | Planned |
+| Lung-overlap check | Share of heatmap inside the lungs; warns when it is low | Planned |
+| Web app | Upload, predict, show all outputs | Planned |
+
+## 4. Dataset
+
+**COVID-QU-Ex** (Qatar University and University of Dhaka) - https://www.kaggle.com/datasets/anasmohammedtahir/covidqu. Please read the Kaggle page for license and terms.
+
+- 33,920 chest X-rays, 256x256 grayscale PNG: COVID-19 (11,956), Non-COVID pneumonia (11,263), Normal (10,701).
+- **Lung Segmentation Data**: all 33,920 images with lung masks.
+- **Infection Segmentation Data**: a subset of 5,826 images with lung masks and infection masks. Every one of these images also exists in the lung part (verified by split, class and file name).
+
+### Official split (kept unchanged)
+
+The dataset ships with a fixed split of about 64% train, 16% validation and 20% test. We keep it, so results stay comparable with the published papers.
+
+| Part | Train | Val | Test | Total |
+|---|---|---|---|---|
+| `lung_seg` | 21,715 | 5,417 | 6,788 | 33,920 |
+| `infection_seg` | 3,728 | 932 | 1,166 | 5,826 |
+
+Per class in `lung_seg` (COVID-19 / Non-COVID / Normal): train 7,658 / 7,208 / 6,849, validation 1,903 / 1,802 / 1,712, test 2,395 / 2,253 / 2,140. Classes are nearly balanced (about 35% / 33% / 31%), so no class weighting is used.
+
+### Folder layout after restructuring
+
+```
+data/
+├── lung_seg/        {train,val,test}/{COVID-19,Non-COVID,Normal}/{images,lung_masks}
+├── infection_seg/   {train,val,test}/{COVID-19,Non-COVID,Normal}/{images,lung_masks,infection_masks}
+├── manifest_clean.csv     (in git)  list of all images with a keep flag
+└── cleaning_report.csv    (in git)  only flagged rows
+```
+
+The images are **not stored in this repository** (size). Only the two CSV files under `data/` are tracked.
+
+### Manifest columns (`manifest_clean.csv`)
+
+| Column | Meaning |
+|---|---|
+| `dataset` | `lung_seg` or `infection_seg` |
+| `split` | `train`, `val` or `test` |
+| `class` | `COVID-19`, `Non-COVID` or `Normal` |
+| `label` | integer label: 0 = COVID-19, 1 = Non-COVID, 2 = Normal |
+| `image` | image path relative to `data/` |
+| `lung_mask` | lung mask path relative to `data/` |
+| `infection_mask` | infection mask path (empty for `lung_seg`) |
+| `issues` | semicolon-separated problems found by `clean_data.py` (empty if none) |
+| `keep` | `True` if the row is used for training and evaluation |
+
+## 5. Repository structure
+
+```
+LungMask-XAI-CXR/
+├── README.md
+├── requirements.txt
+├── .gitignore
+├── app/                     web app (planned, empty for now)
+├── models/                  trained weights (not tracked, see section 10)
+├── outputs/                 figures and result files
+├── data/
+│   ├── manifest_clean.csv
+│   └── cleaning_report.csv
+└── src/
+    ├── check_data.py
+    ├── restructure_data.py
+    ├── check_data_deep.py
+    ├── make_manifest.py
+    ├── check_preprocessing_need.py
+    ├── clean_data.py
+    ├── dataset.py
+    └── train_classifier.py
+```
+
+## 6. File reference (what each file does)
+
+### Scripts in `src/` (in the order they are used)
+
+#### `check_data.py`
+Counts the files in every dataset folder.
+- **Note:** written for the original nested Kaggle layout. Change its root folder to `data/lung_seg` and `data/infection_seg` to reuse it after restructuring.
+- **Run:** `python src/check_data.py`
+
+#### `restructure_data.py`
+Flattens the nested Kaggle download: removes the doubled `Infection Segmentation Data/Infection Segmentation Data` folders and the archive folder, lowercases split names, and renames `infection masks` to `infection_masks` and `lung masks` to `lung_masks`. It does a dry run unless `--apply` is given, and it **moves** folders (nothing is copied).
+- **Input:** the extracted Kaggle folder
+- **Output:** `data/lung_seg/` and `data/infection_seg/`
+- **Run:** `python src/restructure_data.py --archive "<folder>" --apply`
+
+#### `check_data_deep.py`
+Validates the flattened data:
+- every image has a mask with the same file name
+- image size and mode (sample of 30 per split and class)
+- mask pixel values and empty masks (100 per class)
+- identical images shared between splits (MD5 hash)
+
+**Input:** `data/` &nbsp;|&nbsp; **Output:** printed report &nbsp;|&nbsp; **Run:** `python src/check_data_deep.py`
+
+#### `make_manifest.py`
+Builds the list of all images with class, label, split and mask paths. It also checks that `infection_seg` is a subset of `lung_seg`, prints the mean lung area per class, and saves a sample figure.
+- **Output:** `data/manifest.csv`, `outputs/sample_grid.png`
+- **Run:** `python src/make_manifest.py`
+
+#### `check_preprocessing_need.py`
+Measures, on 300 training images per class, the pixel range and percentiles, the share of black and white pixels, the noise level (Immerkaer estimate), brightness, contrast and border brightness. It is used to decide which preprocessing steps are really needed.
+- **Output:** printed table, `outputs/preprocessing_check.png`, `outputs/preprocessing_check_hist.png`
+- **Run:** `python src/check_preprocessing_need.py`
+
+#### `clean_data.py`
+Decodes **every** image and mask and flags problems: `corrupt`, `wrong_size`, `wrong_mode`, `blank_image`, `mask_not_binary`, `lung_empty`, `lung_tiny`, `lung_huge`, `duplicate`. Rows with `corrupt`, `wrong_size`, `wrong_mode`, `blank_image`, `lung_empty` or `duplicate` get `keep = False`. **No file is ever deleted.**
+- **Output:** `data/manifest_clean.csv`, `data/cleaning_report.csv`
+- **Run:** `python src/clean_data.py`
+
+#### `dataset.py`
+The PyTorch `Dataset` (`CXRDataset`) and the whole preprocessing pipeline (see section 7). It works locally (`layout="local"`) and on Kaggle (`layout="kaggle"`, original nested folders), and can also return lung and infection masks for evaluation. Running it directly performs a self-test.
+- **Input:** `manifest_clean.csv`
+- **Output:** tensors; `outputs/preprocess_check.png` (self-test)
+- **Run:** `python src/dataset.py`
+
+#### `train_classifier.py`
+Trains and evaluates a classifier on Kaggle and finds the dataset paths automatically. It uses a pretrained model from `timm`, AdamW, a cosine learning-rate schedule, mixed precision, label smoothing 0.1 and early stopping on validation accuracy, then evaluates **once** on the test split.
+- **Options (top of the file):** `MODEL`, `BATCH`, `EPOCHS`, `LR`, `USE_CLAHE`, `TRAIN_FRACTION`, `FREEZE_BACKBONE`
+- **Output:** `best_<TAG>.pt`, `history_<TAG>.csv`, `results_<TAG>.json`, `curves_<TAG>.png`
+- **Run:** see section 9
+
+`<TAG>` is built from the settings, for example `convnext_tiny_frac1.0` or `mobilenetv4_conv_small_frac0.05_frozen`, so runs never overwrite each other.
+
+### Other files
+
+| File | Purpose |
+|---|---|
+| `requirements.txt` | Python packages for local work. |
+| `.gitignore` | Keeps data, the virtual environment and large model files out of git; keeps the two manifest files. |
+| `data/manifest_clean.csv` | Master list of all 39,746 image rows with `issues` and `keep` columns. Training reads this file. |
+| `data/cleaning_report.csv` | Only the flagged rows (currently 4 rows with `lung_huge`). |
+| `outputs/sample_grid.png` | One X-ray per class with lung mask and infection mask overlaid. |
+| `outputs/preprocessing_check.png` | Random X-rays per class used to inspect image quality. |
+| `outputs/preprocessing_check_hist.png` | Brightness and noise histograms per class. |
+| `outputs/preprocess_check.png` | Original vs. CLAHE vs. augmented examples (made by `python src/dataset.py`). |
+
+## 7. Data preparation and preprocessing
+
+### Validation of the data
+
+| Check | Result |
+|---|---|
+| Images and masks pair up by file name in every folder | Passed |
+| Image size | All 256x256 |
+| Image mode | Grayscale (single channel) |
+| Lung masks | Binary (0 and 255), none empty |
+| Infection masks | Binary; non-empty **only for COVID-19**, blank for Non-COVID and Normal |
+| Identical images across splits | 0 |
+| `clean_data.py` over all 39,746 rows | 0 excluded; 4 lung masks flagged `lung_huge` (kept) |
+
+### What the measurements decided
+
+Measured on 300 training images per class:
+
+| Question | Finding | Decision |
+|---|---|---|
+| Is scaling needed? | Pixels span 0-255 | Scale to 0-1 and normalize |
+| Is denoising needed? | Estimated noise is about 1 gray level in 255 | **No denoising** |
+| Do classes differ in brightness? | Mean about 138 / 126 / 130 (COVID-19 / Non-COVID / Normal); border about 108 / 93 / 99 | Possible source differences; lung-mask check and brightness jitter address this |
+| Is contrast enhancement needed? | Not proven | CLAHE kept as an optional experiment (off by default) |
+
+### Pipeline in `src/dataset.py` (applied on the fly, nothing is saved to disk)
+
+1. Optional CLAHE on the grayscale image (off by default).
+2. Grayscale to 3 channels (pretrained models expect RGB).
+3. Resize to 224x224.
+4. **Training images only:** rotation up to 10 degrees, zoom 0.9-1.1, brightness and contrast jitter 0.2. Horizontal flip is available but off by default because it moves the heart to the other side.
+5. Scale to 0-1 and normalize with ImageNet mean and standard deviation.
+
+## 8. Installation and local setup
+
+```bash
+git clone https://github.com/bushradev01/LungMask-XAI-CXR.git
+cd LungMask-XAI-CXR
+```
+
+Create the environment (Windows PowerShell):
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1      # if blocked: Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+pip install -r requirements.txt
+```
+
+(macOS/Linux: `source venv/bin/activate`.)
+
+**Optional: get the data locally** (only needed to rerun the checks; training runs on Kaggle):
+
+1. Download COVID-QU-Ex from Kaggle and extract it into `data/`.
+2. Preview and apply the restructuring (use the name of your extracted folder):
+   ```powershell
+   python src/restructure_data.py --archive "data/<extracted folder>"
+   python src/restructure_data.py --archive "data/<extracted folder>" --apply
+   ```
+3. Reproduce the checks and lists:
+   ```powershell
+   python src/check_data_deep.py
+   python src/make_manifest.py
+   python src/clean_data.py
+   ```
+
+`manifest_clean.csv` is already in the repository, so step 3 is optional.
+
+## 9. Training on Kaggle
+
+No local GPU is needed. Training uses a free Kaggle GPU.
+
+1. Create a private Kaggle dataset named `dl-code` containing `src/dataset.py`, `src/train_classifier.py` and `data/manifest_clean.csv`.
+2. Open the COVID-QU-Ex dataset page, click **New Notebook**, then **Add Input** and add `dl-code`.
+3. Notebook settings: Accelerator **GPU T4 x2**, Internet **On** (pretrained weights are downloaded; Kaggle requires phone verification for this).
+4. Run three cells:
+   ```
+   !pip install -q timm
+   ```
+   ```python
+   import os
+   for dp, dn, fn in os.walk("/kaggle/input"):
+       if "train_classifier.py" in fn:
+           print(os.path.join(dp, "train_classifier.py"))
+       if dp.count(os.sep) >= 5:
+           dn[:] = []
+   ```
+   ```
+   %run "PATH_PRINTED_ABOVE"
+   ```
+5. For a background run use **Save Version -> Save & Run All (Commit)**. Read the TEST RESULTS block in the Logs tab and download files from the Output tab.
+
+Suggested settings at the top of `train_classifier.py`:
+
+| Run | `MODEL` | `BATCH` | Other |
+|---|---|---|---|
+| ConvNeXt-Tiny (2022) | `convnext_tiny` | 64 | defaults |
+| MaxViT-Tiny (2022) | `maxvit_tiny_tf_224` | 32 | defaults |
+| MobileNetV4 (2024) | `mobilenetv4_conv_small` | 128 | `LR = 5e-4` |
+| Limited data | any | 16 / 32 / 64 | `TRAIN_FRACTION` = 0.01 / 0.05 / 0.10, more epochs |
+| Frozen backbone | any | 64 | `FREEZE_BACKBONE = True`, `LR = 1e-3` |
+
+Protocol: the validation split selects the best epoch; the test split is evaluated once at the end and never used for tuning.
+
+## 10. Results
+
+### Classification on the official test split (6,788 images)
+
+| Model | Year | Train images | Accuracy | Macro F1 | Macro AUC |
+|---|---|---|---|---|---|
+| ConvNeXt-Tiny (ImageNet pretrained, full fine-tuning) | 2022 | 21,715 | **96.61%** | 0.9656 | 0.9956 |
+| MaxViT-Tiny | 2022 | - | pending | - | - |
+| MobileNetV4-Conv-Small | 2024 | - | pending | - | - |
+
+Training setup of the ConvNeXt-Tiny run: input 224x224, batch 64, up to 10 epochs with early stopping (patience 3), AdamW (learning rate 1e-4, weight decay 0.05), cosine schedule, label smoothing 0.1, mixed precision, seed 42, one Kaggle T4 GPU (about 30 minutes).
+
+| Class | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| COVID-19 | 0.9945 | 0.9775 | 0.9859 | 2,395 |
+| Non-COVID | 0.9567 | 0.9605 | 0.9586 | 2,253 |
+| Normal | 0.9452 | 0.9593 | 0.9522 | 2,140 |
+
+Confusion matrix (rows = true class, columns = predicted; order COVID-19, Non-COVID, Normal):
+
+```
+[[2341   20   34]
+ [   4 2164   85]
+ [   9   78 2053]]
+```
+
+Most errors are between Non-COVID and Normal. The two reference papers report about 97% on this dataset, so this level is expected.
+
+**Model weights** are too large for git (over 100 MB). They are shared through a GitHub Release or a Drive link; ask the repository owner.
+
+## 11. Project status and roadmap
+
+- [x] Dataset study, restructuring and cleaning
+- [x] Preprocessing and augmentation (`dataset.py`)
+- [x] Classifier 1: ConvNeXt-Tiny (96.61%)
+- [ ] Classifier 2: MaxViT-Tiny
+- [ ] Classifier 3: light 2023-2024 model (MobileNetV4)
+- [ ] Limited-data runs and frozen-backbone run (accuracy vs. training-set size)
+- [ ] Ablations: CLAHE on/off; lung-masked images (background removed)
+- [ ] Lung segmentation model (`lung_seg`)
+- [ ] Infection segmentation model (`infection_seg`, COVID-19 masks only)
+- [ ] Explanation methods: Grad-CAM, Score-CAM and at least one more
+- [ ] Lung-overlap metric and infection-overlap metric
+- [ ] Web app in `app/`
+- [ ] Final report
+
+## 12. Limitations
+
+- The dataset has **no patient IDs**, so images of the same patient may appear in both train and test. This cannot be checked and may make accuracy look slightly higher.
+- Infection masks exist only for COVID-19, so infection-overlap evaluation covers COVID-19 only.
+- Non-COVID is a mixed class (viral and bacterial pneumonia).
+- The data pools several sources; brightness differences between classes suggest possible source shortcuts.
+- All results come from a single dataset and a single run per setting; no external test set yet.
+
+## 13. Related work
+
+- **COVID-QU-Ex dataset** - Qatar University and University of Dhaka: https://www.kaggle.com/datasets/anasmohammedtahir/covidqu
+- **LungMaxViT** - Fu et al., Scientific Reports, 2025: https://www.nature.com/articles/s41598-025-90607-x (CNN with Squeeze-and-Excitation in front of MaxViT; CLAHE, Gaussian denoising, flipping, Grad-CAM; about 96.8% accuracy on COVID-QU-Ex)
+- **Explainable knowledge distillation** - Mir and Rizvi: link to be added (student OFA-595 distilled from VGG19, DenseNet-201, Visformer-S and AutoFormer; Score-CAM; up to about 97% accuracy)
+- **ExplainCXR** - arXiv 2508.15251: https://arxiv.org/abs/2508.15251 (lung-mask-verified explainable detection; to be reviewed against this project's contribution)
+
+## 14. Contributing
+
+```bash
+git pull                              # before you start
+git checkout -b my-feature            # work on a branch
+git add .
+git commit -m "describe the change"
+git push -u origin my-feature         # then open a Pull Request
+```
+
+Please do not commit data, `venv/` or model weights. Report new results by adding a row to the table in section 10.
+
+## 15. Acknowledgements
+
+Dataset by the COVID-QU-Ex authors (Qatar University and University of Dhaka). Models are loaded through the `timm` library with ImageNet-pretrained weights.
